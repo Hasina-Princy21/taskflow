@@ -1,6 +1,7 @@
 import express, { Application, Request, Response } from "express";
 import cors from "cors";    
 import { prisma } from "./config/prisma";
+import authRoutes from "./routes/auth";
 
 const app: Application = express();
 
@@ -9,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-app.get("/health", async (_req: Request, res: Response) => {
+app.get("/api/health", async (_req: Request, res: Response) => {
     try {
         await prisma.$queryRaw`SELECT 1`;
         res.status(200).json({
@@ -26,5 +27,7 @@ app.get("/health", async (_req: Request, res: Response) => {
         });
     }
 });
+
+app.use("/api/auth", authRoutes);
 
 export default app;
