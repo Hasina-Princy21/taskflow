@@ -221,3 +221,19 @@ model Comment {
     ├── utils/            # Fonctions utilitaires génériques
     ├── App.tsx
     └── main.tsx 
+
+# server api 
+  . cretation de l api register pour l inscription
+  - fichier :
+    _routes/auth
+    _controller/authController
+
+  . creation de l endpoint refresh et access
+  - ajout string token et refresh dans .env
+  - ajout de l endpoint login et installation des dependances suivantes
+      npm install jsonwebtoken
+      npm install -D @types/jsonwebtoken
+
+  . ajout de middleware/auth.ts pour faire le test refresh token et avoir l user connecter
+
+  . creation endpoint logout
