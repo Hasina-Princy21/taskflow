@@ -11,7 +11,7 @@ function App() {
 
   async function fetchHealth() {
     try {
-      const response = await fetch("http://localhost:4000/health");
+      const response = await fetch("http://localhost:4000/api/health");
       if (response.ok) {
         const data = await response.json();
         setHealth(data);
