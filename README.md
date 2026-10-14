@@ -237,3 +237,15 @@ model Comment {
   . ajout de middleware/auth.ts pour faire le test refresh token et avoir l user connecter
 
   . creation endpoint logout
+
+
+# sprint 2 organization et invitaion
+  - creation enpdoint de creation organition
+  fichier: 
+    _controloller/organizationController.ts
+    _routes/organization.ts
+  
+  function
+    . utilisation de trasaction pour que organisation et organizationMember soient creer en meme tant, dans le cas contraire si l un d eux echoue rollback -> aucun n est creer
+
+  - invitation member
