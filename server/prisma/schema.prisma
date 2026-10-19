@@ -14,9 +14,10 @@ model User {
   name         String
   createdAt    DateTime @default(now())
 
-  memberships   OrganizationMember[]
-  assignedTasks Task[]               @relation("TaskAssignee")
-  comments      Comment[]
+  memberships     OrganizationMember[]
+  assignedTasks   Task[]               @relation("TaskAssignee")
+  comments        Comment[]
+  sentInvitations Invitation[]
 }
 
 model Organization {
@@ -24,8 +25,9 @@ model Organization {
   name      String
   createdAt DateTime @default(now())
 
-  members  OrganizationMember[]
-  projects Project[]
+  members    OrganizationMember[]
+  projects   Project[]
+  invitation Invitation[]
 }
 
 enum Role {
@@ -52,7 +54,7 @@ model Project {
   organizationId String
 
   boardColumns BoardColumn[]
-  labels  Label[]
+  labels       Label[]
 }
 
 model BoardColumn {
@@ -66,15 +68,15 @@ model BoardColumn {
 }
 
 model Task {
-  id          String    @id @default(uuid())
-  title       String
-  description String?
-  dueDate     DateTime?
-  position    Int
-  boardColumn      BoardColumn    @relation(fields: [boardColumnId], references: [id])
-  boardColumnId    String
-  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  assigneeId  String?
+  id            String      @id @default(uuid())
+  title         String
+  description   String?
+  dueDate       DateTime?
+  position      Int
+  boardColumn   BoardColumn @relation(fields: [boardColumnId], references: [id])
+  boardColumnId String
+  assignee      User?       @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId    String?
 
   labels   TaskLabel[]
   comments Comment[]
@@ -107,4 +109,26 @@ model Comment {
   taskId    String
   author    User     @relation(fields: [authorId], references: [id])
   authorId  String
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  CANCELLED
+}
+
+model Invitation {
+  id             String           @id @default(uuid())
+  email          String
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  createdAt      DateTime         @default(now())
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  organizationId String
+  role           Role
+  invitedBy      User             @relation(fields: [invitedById], references: [id])
+  invitedById    String
+
+  @@unique([email, organizationId])
 }

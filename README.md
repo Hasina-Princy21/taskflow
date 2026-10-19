@@ -249,3 +249,14 @@ model Comment {
     . utilisation de trasaction pour que organisation et organizationMember soient creer en meme tant, dans le cas contraire si l un d eux echoue rollback -> aucun n est creer
 
   - invitation member
+
+
+  # module invitation   
+    - shema prisma
+      . invitationSatatus enum(pedding, accepted, cancelled)
+      . invitation (id, email, token"@unique", status"@defaul(pedding)", expiresAt,createdAt, organization, organizationId, role, invitedBy, invitedById, @@unique([email, organization]))
+      . ajout inverse dans user et organization pour invitation[]   
+
+    - npx prisma validate,
+      npx prisma migrate dev --name add_invitation
+
