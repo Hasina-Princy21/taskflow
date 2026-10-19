@@ -1,262 +1,421 @@
-# taskflow
+# TaskFlow
 
-1- Initialiser le repo et la 
+Plateforme collaborative de gestion de projets (type mini Trello / Linear), multi-organisations.
+Projet d'apprentissage full-stack mené comme en entreprise : cahier des charges, sprints, revues de code.
 
-Crée un dossier taskflow/ avec deux sous-dossiers : client/ (frontend) et server/ (backend). Initialise un dépôt Git à la racine avec un .gitignore couvrant node_modules, .env, dist/.
+## Sommaire
 
+1. [Stack technique](#1-stack-technique)
+2. [Avancement](#2-avancement)
+3. [Structure du dépôt](#3-structure-du-dépôt)
+4. [Installation et lancement](#4-installation-et-lancement)
+5. [Variables d'environnement](#5-variables-denvironnement)
+6. [Base de données](#6-base-de-données)
+7. [API](#7-api)
+8. [Authentification et autorisations](#8-authentification-et-autorisations)
+9. [Décisions techniques](#9-décisions-techniques)
+10. [Conventions](#10-conventions)
+11. [Problèmes rencontrés et solutions](#11-problèmes-rencontrés-et-solutions)
+12. [Commandes utiles](#12-commandes-utiles)
+13. [Dette technique et suite](#13-dette-technique-et-suite)
 
-2- 
+---
 
+## 1. Stack technique
 
-3- Squelette backend Express + TypeScript
-Dans server/, initialise un projet Node avec TypeScript, Express, ts-node-dev pour le hot reload. Crée un endpoint de santé GET /health qui répond { status: 'ok' } pour valider que tout tourne.
-    _ Initilisation
-        npm init -y
-        
-    _ Dépendances de production
-        npm install express cors dotenv
+| Couche | Technologie |
+|---|---|
+| Frontend | React (Vite) + TypeScript |
+| Backend | Node.js + Express 5 + TypeScript (CommonJS) |
+| Base de données | PostgreSQL 16 (Docker) |
+| ORM | Prisma **6.x** |
+| Validation | zod |
+| Auth | bcrypt + JWT (access token + refresh token) |
+| Dev | tsx (hot reload), Docker Compose, Adminer |
 
-    _ Dépendances de développement
-        npm install -D typescript ts-node-dev @types/node @types/express @types/cors
+Versions volontairement figées : TypeScript 5.x (pas 7), Prisma 6.x (pas 8, encore en release candidate). Voir [Décisions techniques](#9-décisions-techniques).
 
-    _ npx tsc --init
-        {
-            "compilerOptions": {
-                "target": "ES2022",
-                "module": "commonjs",
-                "rootDir": "./src",
-                "outDir": "./dist",
-                "esModuleInterop": true,
-                "forceConsistentCasingInFileNames": true,
-                "strict": true,
-                "skipLibCheck": true,
-                "resolveJsonModule": true
-            },
-            "include": ["src/**/*"],
-            "exclude": ["node_modules", "dist"]
-        }
+---
 
-    _ mkdir -p src/routes src/controllers src/middlewares src/config 'linux'
-        mkdir src/routes, src/controllers, src/middlewares, src/config 'windows'
+## 2. Avancement
 
-# configuration des fichiers app & server ts
+| Sprint | Contenu | Statut |
+|---|---|---|
+| Sprint 0 | Setup repo, Docker, Express + TS, Prisma, schéma initial, squelette React, healthcheck | ✅ Terminé |
+| Sprint 1 | Authentification : register, login, middleware, refresh, logout | ✅ Terminé |
+| Sprint 2 | Organisations, invitations, rôles | 🔄 En cours |
+| Sprint 3 | Projets + Kanban (colonnes, tâches) | ⏳ |
+| Sprint 4 | Commentaires, labels, recherche et filtres | ⏳ |
+| Sprint 5 | Dashboard, tests, polish, dockerisation finale | ⏳ |
 
+### Détail du Sprint 2
 
-    _ installation de prisma
-        npm install -D prisma
-        npm install @prisma/client
+- ✅ Création d'organisation (transaction `Organization` + `OrganizationMember` OWNER)
+- ✅ Middleware `requireRole` (404 non-membre / 403 rôle insuffisant), testé
+- ✅ Modèle `Invitation` migré (token unique, expiration, contrainte email + organisation)
+- ⏳ Endpoint d'invitation `POST /api/organizations/:organizationId/invitations`
+- ⏳ Acceptation d'invitation
+- ⏳ Liste des organisations de l'utilisateur connecté
 
-    !!! au cas ou il y a une erreur edgesOut
+---
 
-    C'est un bug connu du résolveur de dépendances npm (arborist), généralement causé par un cache npm corrompu ou un package-lock.json incohérent — ce n'est pas lié à Prisma spécifiquement.
+## 3. Structure du dépôt
 
-    Solution : nettoyer et réinstaller
-    powershell
-    # 1. Nettoyer le cache npm
-    npm cache clean --force
+```
+taskflow/
+├── docker-compose.yml        # PostgreSQL + Adminer
+├── .env                      # Variables Docker (non commité)
+├── client/                   # Frontend React + Vite
+│   └── src/
+│       ├── api/              # Appels au backend (fetch centralisé)
+│       ├── components/       # Composants réutilisables
+│       ├── pages/            # Une page = une route
+│       ├── context/          # État global (utilisateur connecté)
+│       ├── hooks/            # Hooks personnalisés
+│       ├── types/            # Types TypeScript partagés
+│       ├── utils/            # Fonctions utilitaires
+│       ├── App.tsx
+│       └── main.tsx
+└── server/                   # Backend Express
+    ├── prisma/
+    │   ├── schema.prisma
+    │   └── migrations/
+    ├── src/
+    │   ├── config/prisma.ts          # Client Prisma (singleton)
+    │   ├── controllers/              # Logique métier
+    │   │   ├── authController.ts
+    │   │   └── organizationController.ts
+    │   ├── middlewares/
+    │   │   ├── auth.ts               # authenticate
+    │   │   └── requireRole.ts        # contrôle du rôle dans une organisation
+    │   ├── routes/                   # Une route par domaine métier
+    │   │   ├── auth.ts
+    │   │   └── organization.ts
+    │   ├── types/express.d.ts        # Extension du type Request (userId)
+    │   ├── app.ts                    # Configuration Express
+    │   └── server.ts                 # Point d'entrée
+    ├── .env                          # Variables backend (non commité)
+    ├── .env.example
+    ├── package.json
+    └── tsconfig.json
+```
 
-    # 2. Supprimer node_modules et le lockfile
-    Remove-Item -Recurse -Force node_modules
-    Remove-Item -Force package-lock.json
+Règle d'organisation : **un fichier de routes par domaine métier** (pas par endpoint), et la logique séparée des routes (`routes/` dit quelles URLs existent, `controllers/` dit ce qu'elles font).
 
-    # 3. Réinstaller toutes les dépendances existantes
-    npm install
+---
 
-    # 4. Puis retenter l'installation de Prisma
-    npm install -D prisma
-    npm install @prisma/client
+## 4. Installation et lancement
 
-    --- si echoue
-    npm install -D prisma --legacy-peer-deps
-    npm install @prisma/client --legacy-peer-deps
+### Prérequis
 
-    _ apres initilisation de prisma pour les agent ia
-        npx prisma init
-        -> a utiliser
-            npx prisma orm init
+- Node.js 22+
+- Docker et Docker Compose
+- Git
 
-    §!!!!!!!! SUPPRESSION DE TOUS LES FICHIERS DEPENDANT DE PRISMA-8 AVEC LES COMMANDES:
-        - Remove-Item -Force prisma.config.ts
-        - Get-ChildItem -Force
-        - Remove-Item -Force prisma-8.md
+### 1. Base de données
 
-# configuration du fichier prisma 
-    _ Lancement du premier migration apres la configuration des tables dans schema.prisma
+À la racine, créer un fichier `.env` pour Docker (voir [section 5](#5-variables-denvironnement)), puis :
 
-````prisma
-generator client {
-  provider = "prisma-client-js"
-}
+```bash
+docker compose up -d
+docker ps
+```
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+Services exposés :
 
-model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  createdAt    DateTime @default(now())
-  memberships   OrganizationMember[]
-  assignedTasks Task[]               @relation("TaskAssignee")
-  comments      Comment[]
-}
+| Service | URL | Remarque |
+|---|---|---|
+| PostgreSQL | `localhost:5433` | Port 5433 côté hôte pour éviter un conflit avec un Postgres local sur 5432 |
+| Adminer | `http://localhost:8080` | Serveur : `postgres` |
 
-model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
-  members  OrganizationMember[]
-  projects Project[]
-}
+### 2. Backend
 
-enum Role {
-  OWNER
-  MEMBER
-}
+```bash
+cd server
+npm install --legacy-peer-deps
+cp .env.example .env        # puis renseigner les valeurs
+npx prisma migrate dev
+npm run dev
+```
 
-model OrganizationMember {
-  id             String       @id @default(uuid())
-  role           Role
-  user           User         @relation(fields: [userId], references: [id])
-  userId         String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  organizationId String
-  @@unique([userId, organizationId])
-}
+Vérification : `GET http://localhost:4000/api/health` doit répondre `database: "Connected"`.
 
-model Project {
-  id             String       @id @default(uuid())
-  name           String
-  createdAt      DateTime     @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  organizationId String
-  boardColumns BoardColumn[]
-  labels  Label[]
-}
+### 3. Frontend
 
-model BoardColumn {
-  id        String  @id @default(uuid())
-  name      String
-  position  Int
-  project   Project @relation(fields: [projectId], references: [id])
-  projectId String
-  tasks Task[]
-}
+```bash
+cd client
+npm install
+npm run dev
+```
 
-model Task {
-  id          String    @id @default(uuid())
-  title       String
-  description String?
-  dueDate     DateTime?
-  position    Int
-  boardColumn      BoardColumn    @relation(fields: [boardColumnId], references: [id])
-  boardColumnId    String
-  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  assigneeId  String?
-  labels   TaskLabel[]
-  comments Comment[]
-}
+Application sur `http://localhost:5173`.
 
-model Label {
-  id        String  @id @default(uuid())
-  name      String
-  color     String
-  project   Project @relation(fields: [projectId], references: [id])
-  projectId String
-  tasks TaskLabel[]
-}
+### Scripts du backend
 
-model TaskLabel {
-  task    Task   @relation(fields: [taskId], references: [id])
-  taskId  String
-  label   Label  @relation(fields: [labelId], references: [id])
-  labelId String
-  @@id([taskId, labelId])
-}
+| Script | Rôle |
+|---|---|
+| `npm run dev` | Serveur avec rechargement à chaud (`tsx watch`) |
+| `npm run build` | Compilation TypeScript vers `dist/` |
+| `npm start` | Lancement du build compilé |
 
-model Comment {
-  id        String   @id @default(uuid())
-  content   String
-  createdAt DateTime @default(now())
-  task      Task     @relation(fields: [taskId], references: [id])
-  taskId    String
-  author    User     @relation(fields: [authorId], references: [id])
-  authorId  String
-}
-````
+---
 
-    _ migration pour la creation des tables
-        - npx prisma migrate dev --name init_initial_models
-    
-    _ Lancement du deuxieme migration pour renomination des tables
-        !- Column -> BoardColunm &
-        !- champs order en position
-        -> npx prisma migrate dev --name rename_colunm_to_boardcolunm_and_order_to_position
+## 5. Variables d'environnement
 
-    _ Ajout configuration de prisma.ts -> config pour gestion des session de connexion pourque pour chaque requette l app n ouvre un instance de connexion a chaque et amenera a une erreur comme 'connexion sature'
+Ne jamais commiter un `.env`. Seul `.env.example` (clés sans valeurs) est versionné.
 
-     
-## client
-    _ installation de l env vite/ts dans client
-        - npm create vite@latest . -- --template react-ts
-    
-    _ test utilisation server sur le client
+### `server/.env`
 
-    _ installations des dependances au sprint 1 (authentification, inscrption, JWV et refresh)
-        - npm install bcrypt jsonwebtoken zod
-        - npm install -D @types/bcrypt @types/jsonwebtoken
+| Variable | Rôle |
+|---|---|
+| `PORT` | Port du serveur (4000) |
+| `NODE_ENV` | `development` ou `production` |
+| `DATABASE_URL` | URL de connexion PostgreSQL (`postgresql://user:password@localhost:5433/db?schema=public`) |
+| `JWT_SECRET` | Clé de signature des access tokens |
+| `JWT_REFRESH_SECRET` | Clé de signature des refresh tokens (**différente** de la précédente) |
+| `CLIENT_URL` | URL du frontend, utilisée pour construire les liens d'invitation |
 
-    _ structure client
-        client/src/
+Générer une clé secrète (à lancer une fois par clé) :
 
-    ├── api/              # Fonctions qui appellent le backend (fetch centralisé)
-    ├── components/       # Composants réutilisables (Button, Input, Modal...)
-    ├── pages/            # Une page = une route de l'application
-    ├── context/          # Gestion d'état global (ex: utilisateur connecté)
-    ├── hooks/            # Hooks personnalisés réutilisables
-    ├── types/            # Interfaces/types TypeScript partagés
-    ├── utils/            # Fonctions utilitaires génériques
-    ├── App.tsx
-    └── main.tsx 
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
 
-# server api 
-  . cretation de l api register pour l inscription
-  - fichier :
-    _routes/auth
-    _controller/authController
+### `.env` racine (Docker Compose)
 
-  . creation de l endpoint refresh et access
-  - ajout string token et refresh dans .env
-  - ajout de l endpoint login et installation des dependances suivantes
-      npm install jsonwebtoken
-      npm install -D @types/jsonwebtoken
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` : doivent correspondre exactement aux identifiants de `DATABASE_URL`.
 
-  . ajout de middleware/auth.ts pour faire le test refresh token et avoir l user connecter
+Le fichier `.env` est lu **au démarrage uniquement** : après toute modification, redémarrer le serveur.
 
-  . creation endpoint logout
+---
 
+## 6. Base de données
 
-# sprint 2 organization et invitaion
-  - creation enpdoint de creation organition
-  fichier: 
-    _controloller/organizationController.ts
-    _routes/organization.ts
-  
-  function
-    . utilisation de trasaction pour que organisation et organizationMember soient creer en meme tant, dans le cas contraire si l un d eux echoue rollback -> aucun n est creer
+### Modèles
 
-  - invitation member
+| Modèle | Rôle |
+|---|---|
+| `User` | Compte utilisateur (email unique, `passwordHash`) |
+| `Organization` | Espace de travail |
+| `OrganizationMember` | Lien utilisateur / organisation avec un `Role` (`OWNER`, `MEMBER`) ; unique sur `(userId, organizationId)` |
+| `Project` | Projet rattaché à une organisation |
+| `BoardColumn` | Colonne du Kanban (champ `position`) |
+| `Task` | Tâche (assignation optionnelle via la relation nommée `TaskAssignee`) |
+| `Label` / `TaskLabel` | Labels et table de jointure many-to-many |
+| `Comment` | Commentaire sur une tâche |
+| `Invitation` | Invitation par email (voir ci-dessous) |
 
+### Modèle `Invitation`
 
-  # module invitation   
-    - shema prisma
-      . invitationSatatus enum(pedding, accepted, cancelled)
-      . invitation (id, email, token"@unique", status"@defaul(pedding)", expiresAt,createdAt, organization, organizationId, role, invitedBy, invitedById, @@unique([email, organization]))
-      . ajout inverse dans user et organization pour invitation[]   
+| Champ | Détail |
+|---|---|
+| `email` | Adresse invitée (normalisée en minuscules) |
+| `token` | Chaîne aléatoire, `@unique` |
+| `status` | Enum `InvitationStatus` : `PENDING` (défaut), `ACCEPTED`, `CANCELLED` |
+| `expiresAt` | Date limite de validité (7 jours prévus) |
+| `role` | Rôle attribué à l'arrivée |
+| `invitedBy` | Utilisateur qui a invité |
 
-    - npx prisma validate,
-      npx prisma migrate dev --name add_invitation
+Contrainte `@@unique([email, organizationId])` : une seule ligne par couple email + organisation. Une ré-invitation **réutilise** la ligne existante (`upsert` : nouveau token, nouvelle expiration, statut remis à `PENDING`). Conséquence assumée : on ne garde pas l'historique des invitations passées.
 
+### Historique des migrations
+
+| Migration | Objet |
+|---|---|
+| `init_models` | Création des 9 modèles initiaux |
+| `rename_column_to_boardcolunm_and_order_to_position` | `Column` renommé `BoardColumn` (mot réservé SQL) et `order` renommé `position` (mot réservé SQL) |
+| `add_invitation` | Modèle `Invitation` et enum `InvitationStatus` |
+
+Remarque : les clés étrangères sont en `ON DELETE RESTRICT` (défaut Prisma). Supprimer une organisation ou un utilisateur tant qu'il reste des invitations liées sera refusé : à traiter (cascade ou suppression explicite) quand la suppression sera implémentée.
+
+### Client Prisma (singleton)
+
+`src/config/prisma.ts` exporte **une seule instance** de `PrismaClient`, stockée sur `globalThis` hors production. Sans cela, le rechargement à chaud recrée un client à chaque sauvegarde et finit par saturer les connexions. Toujours importer `{ prisma }` depuis ce fichier, jamais `new PrismaClient()` ailleurs.
+
+---
+
+## 7. API
+
+Toutes les routes sont préfixées par `/api`. Format d'erreur unique : `{ "message": "..." }`.
+
+| Méthode | Route | Protection | Description |
+|---|---|---|---|
+| GET | `/api/health` | Publique | État du serveur et de la connexion à la base (200 ou 503) |
+| POST | `/api/auth/register` | Publique | Inscription (201, 409 si email déjà pris) |
+| POST | `/api/auth/login` | Publique | Connexion, renvoie `token` et `refreshToken` |
+| POST | `/api/auth/refresh` | Publique | Nouveau `token` à partir d'un `refreshToken` valide |
+| POST | `/api/auth/logout` | Publique | Déconnexion (voir [décisions](#9-décisions-techniques)) |
+| POST | `/api/organizations` | `authenticate` | Crée une organisation dont l'appelant devient OWNER |
+| POST | `/api/organizations/:organizationId/invitations` | `authenticate` + OWNER | **À venir** |
+
+### Validation
+
+- `register` : `name` (3 caractères min.), `email` (format valide, `trim` + `toLowerCase`), `password` (6 caractères min.)
+- `login` : même normalisation de l'email, mot de passe en simple chaîne
+- Les erreurs de validation renvoient `400` avec les erreurs par champ (`flatten().fieldErrors`)
+
+---
+
+## 8. Authentification et autorisations
+
+### Tokens
+
+| Token | Durée | Clé | Usage |
+|---|---|---|---|
+| Access token | 15 minutes | `JWT_SECRET` | Envoyé à chaque requête protégée : `Authorization: Bearer <token>` |
+| Refresh token | 7 jours | `JWT_REFRESH_SECRET` | Uniquement pour obtenir un nouvel access token via `/api/auth/refresh` |
+
+Deux clés distinctes : un token signé pour un usage ne peut pas être utilisé pour l'autre. Le payload ne contient que `userId`, jamais de donnée sensible (un JWT est signé, pas chiffré).
+
+### Middlewares
+
+**`authenticate`** : répond à « qui es-tu ? ». Vérifie le header `Authorization`, valide le token, attache `req.userId`, puis appelle `next()`. Sinon `401`.
+
+**`requireRole(['OWNER'])`** : répond à « as-tu le droit dans *cette* organisation ? ». Lit `:organizationId` dans l'URL, cherche la ligne `OrganizationMember` correspondante :
+
+| Situation | Réponse |
+|---|---|
+| Pas membre de l'organisation | `404` (on ne révèle pas l'existence de l'organisation) |
+| Membre avec un rôle non autorisé | `403` |
+| Membre avec un rôle autorisé | `next()` |
+
+Usage : `router.post('/:organizationId/invitations', authenticate, requireRole(['OWNER']), handler)`.
+
+Le type `Request` est étendu dans `src/types/express.d.ts` pour déclarer `userId?: string`.
+
+---
+
+## 9. Décisions techniques
+
+| Décision | Raison |
+|---|---|
+| Multi-organisations dès le MVP | Norme des SaaS B2B ; très difficile à ajouter après coup sur une base en production |
+| Temps réel et facturation reportés en V2 | Rester concentré sur le cœur métier |
+| Prisma 6 (pas 8) | Prisma 8 introduit un workflow entièrement différent (contrats, nouvelles commandes de migration) et est encore en release candidate ; outillage et documentation de la 6.x bien plus stables |
+| TypeScript 5.x (pas 7) | `ts-node` n'est pas compatible avec TypeScript 7 ; l'écosystème n'a pas encore suivi |
+| `tsx` à la place de `ts-node-dev` | Plus rapide, maintenu, standard actuel pour le hot reload |
+| CommonJS (pas de `"type": "module"`) | Cohérent avec `tsconfig` (`"module": "commonjs"`) ; migration ESM possible plus tard |
+| Préfixe `/api` sur toutes les routes | Sépare clairement l'API du reste, permet le versionnement et simplifie le routage en déploiement |
+| UUID plutôt qu'entiers auto-incrémentés | Identifiants non énumérables, important en multi-organisations |
+| Transaction à la création d'organisation | Atomicité : l'organisation et son OWNER sont créés ensemble ou pas du tout (sinon organisation orpheline) |
+| Même réponse `401 Invalid credentials` pour email inconnu et mauvais mot de passe | Empêche l'énumération de comptes |
+| Email normalisé (`trim` + `toLowerCase`) partout | Évite les doublons de casse et les échecs de connexion |
+| `select` sans `passwordHash` à la création d'un utilisateur | Le hash ne sort jamais dans une réponse |
+| Logout côté client uniquement | Un JWT ne peut pas être annulé côté serveur sans liste de révocation ; l'access token expire en 15 minutes. Liste noire en base envisageable en V2 |
+| Une seule ligne `Invitation` par email + organisation | Évite les invitations simultanées multiples ; réutilisation par `upsert` |
+| Rôle fixé à `MEMBER` côté serveur lors d'une invitation | Un seul OWNER par organisation dans le MVP ; le body ne contient que l'email |
+| Token d'invitation : `randomBytes(32)`, jamais `Math.random()` | `Math.random()` est prévisible |
+
+---
+
+## 10. Conventions
+
+### Commits (Conventional Commits)
+
+Format : `type(scope): description courte`
+
+| Type | Usage |
+|---|---|
+| `feat` | Nouvelle fonctionnalité |
+| `fix` | Correction de bug |
+| `chore` | Configuration, dépendances, maintenance |
+| `docs` | Documentation |
+| `refactor` | Réécriture sans changement de comportement |
+| `test` | Tests |
+
+Exemples : `chore(server): setup Express, TypeScript and Prisma with PostgreSQL`, `feat(auth): add role-based access middleware`.
+
+Commits **atomiques** : une idée cohérente par commit. Le nom du sprint n'apparaît pas dans le message.
+
+### Branches
+
+- `main` : toujours stable
+- Une branche par sprint (`sprint1`, `sprint2`...), mergée dans `main` par Pull Request (merge commit), puis la suivante est créée depuis un `main` à jour
+- Un modèle `develop` / `production` ne deviendra utile qu'avec un vrai déploiement
+
+### Code
+
+- Format d'erreur unique : `{ message: "..." }`, en anglais
+- Codes HTTP : `200` / `201` succès, `400` validation, `401` authentification, `403` rôle insuffisant, `404` introuvable ou accès caché, `409` conflit, `500` erreur serveur (message générique, détail dans les logs uniquement)
+- Ne jamais renvoyer `error.message` brut au client
+- Nommage : dossiers par rôle (`controllers/authController.ts`), champs de relation Prisma en camelCase minuscule
+- Un schéma zod se définit **hors** de la fonction (pas recréé à chaque requête)
+- Importer le client Prisma uniquement depuis `config/prisma.ts`
+
+---
+
+## 11. Problèmes rencontrés et solutions
+
+| Symptôme | Cause | Solution |
+|---|---|---|
+| `mkdir -p` échoue sous PowerShell | Syntaxe bash | `mkdir dossier1, dossier2` (PowerShell) |
+| `Cannot read properties of undefined (reading 'fileExists')` au lancement | TypeScript 7 incompatible avec `ts-node` | TypeScript 5.x + `tsx` |
+| `npm install` : `Cannot read properties of null (reading 'edgesOut')` | Bug du résolveur npm (arborist) | `npm install --legacy-peer-deps` ; en dernier recours supprimer `node_modules` et `package-lock.json` |
+| `prisma init` ne crée pas `schema.prisma`, dossiers `.claude`, `.cursor`... | Comportement de Prisma 8 | Retour à Prisma 6 ; supprimer `prisma.config.ts`, `.agents`, `.claude`, `.cursor`, `.devin`, `prisma-8.md` |
+| Erreur `datasource property url is no longer supported` dans VS Code | Faux positif de l'extension Prisma (language server de la v7) | Ignorer ; seule la sortie du terminal fait foi |
+| `P1000 Authentication failed ... (not available)` | Un Postgres Windows natif occupait déjà le port 5432 | Exposer le conteneur sur `5433:5432` et adapter `DATABASE_URL` ; vérifier avec `netstat -ano \| findstr :5432` |
+| Identifiants Postgres ignorés après modification | Le volume garde les identifiants du premier démarrage | `docker compose down -v` (supprime les données) puis `up -d` |
+| Prisma Studio vide, une seule table | Le schéma ne contenait pas encore les modèles | Ajouter les modèles puis `npx prisma migrate dev` |
+| `Property 'userId' does not exist on type 'Request'` | Le type Express ne connaît pas `userId` | Fichier `src/types/express.d.ts` (module augmentation) |
+| `Type 'string \| string[]' is not assignable to type 'string'` sur `req.params` | Typage d'Express 5 | `if (typeof organizationId !== "string") return ...` |
+| `jsonwebtoken has no exported member named 'jwt'` | Mauvais import | `import jwt from "jsonwebtoken"` (export par défaut, sans accolades) |
+| Login : `500` avec `secretOrPrivateKey must have a value` | `JWT_SECRET` / `JWT_REFRESH_SECRET` absents du `.env` | Ajouter les clés et **redémarrer** le serveur |
+| `bcrypt.compare` toujours « valide » | `await` manquant (une Promise est toujours truthy) | `const ok = await bcrypt.compare(...)` puis `if (!ok)` |
+| `useEffect` exécuté deux fois en développement | `StrictMode` monte, démonte, remonte volontairement | Normal en dev uniquement, absent en production |
+| `fetch` : `Failed to fetch` non attrapé | Serveur injoignable : la Promise est rejetée | `try/catch` autour du `fetch`, en plus du test sur `response.ok` |
+
+---
+
+## 12. Commandes utiles
+
+### Prisma (à lancer depuis `server/`)
+
+| Commande | Usage |
+|---|---|
+| `npx prisma migrate dev --name <nom>` | Crée et applique une migration (développement) |
+| `npx prisma migrate deploy` | Applique les migrations existantes (production) |
+| `npx prisma migrate reset` | Recrée la base vide et rejoue toutes les migrations |
+| `npx prisma migrate status` | État des migrations |
+| `npx prisma validate` | Valide le schéma sans toucher à la base |
+| `npx prisma format` | Réaligne `schema.prisma` |
+| `npx prisma generate` | Régénère le client TypeScript |
+| `npx prisma studio` | Interface de consultation sur `localhost:5555` |
+| `npx prisma db push` | Synchronise le schéma sans créer de migration (à éviter hors prototypage) |
+
+Après chaque migration, relire le `migration.sql` généré. Attention : renommer un modèle ou un champ est interprété comme suppression + création (perte de données sur une base remplie).
+
+### Docker
+
+```bash
+docker compose up -d        # démarrer
+docker compose stop         # arrêter sans supprimer
+docker compose down         # supprimer les conteneurs (garde le volume)
+docker compose down -v      # supprime aussi le volume (données perdues)
+docker logs postgres_db     # logs de PostgreSQL
+```
+
+### Tester l'API
+
+Thunder Client (VS Code) ou Postman. Header des routes protégées : `Authorization: Bearer <valeur du champ "token">` (**pas** le `refreshToken`).
+
+---
+
+## 13. Dette technique et suite
+
+### À faire dans le Sprint 2
+
+1. Controller et route d'invitation : validation zod de l'email, vérification que la personne n'est pas déjà membre (chercher le `User` par email, puis `OrganizationMember`), token, expiration à 7 jours, `upsert`, lien `${CLIENT_URL}/invitations/<token>`
+2. Acceptation d'invitation : gérer les deux cas (compte existant ou à créer), vérifier statut et expiration
+3. Liste des organisations de l'utilisateur
+4. Mettre à jour le cahier des charges (section 6 : modèle `Invitation`)
+
+### Dette technique connue
+
+- **Envoi d'email simulé** : le lien d'invitation est renvoyé dans la réponse de l'API. À remplacer par un vrai envoi avant toute mise en production
+- **Validation des variables d'environnement au démarrage** (fail fast) : le serveur démarre aujourd'hui même si `JWT_SECRET` manque, et ne plante qu'à la première connexion. Prévoir un `src/config/env.ts` validé avec zod
+- **Pas de révocation de refresh token** : logout purement côté client
+- **Stockage du refresh token côté client** : cookie `httpOnly` à mettre en place avec le frontend
+- **Formulaires de login/register** : pas encore d'interface, tests faits via Thunder Client
+- **Indicateur de chargement** (loading / success / error) à prévoir dès les formulaires
+- **Tests automatisés** (Vitest/Jest + Supertest) à ajouter ; `app.ts` est séparé de `server.ts` pour permettre de tester sans démarrer de serveur
+- **Clés JWT** : toute clé apparue en clair hors d'un `.env` doit être régénérée avant la production
