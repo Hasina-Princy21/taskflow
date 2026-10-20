@@ -53,8 +53,8 @@ Versions volontairement figées : TypeScript 5.x (pas 7), Prisma 6.x (pas 8, enc
 - ✅ Création d'organisation (transaction `Organization` + `OrganizationMember` OWNER)
 - ✅ Middleware `requireRole` (404 non-membre / 403 rôle insuffisant), testé
 - ✅ Modèle `Invitation` migré (token unique, expiration, contrainte email + organisation)
-- ⏳ Endpoint d'invitation `POST /api/organizations/:organizationId/invitations`
-- ⏳ Acceptation d'invitation
+- ✅ Invitation d'un membre, liste des invitations en attente et annulation (OWNER uniquement)
+- ✅ Consultation publique d'une invitation et acceptation (transaction)
 - ⏳ Liste des organisations de l'utilisateur connecté
 
 ---
@@ -84,13 +84,15 @@ taskflow/
     │   ├── config/prisma.ts          # Client Prisma (singleton)
     │   ├── controllers/              # Logique métier
     │   │   ├── authController.ts
-    │   │   └── organizationController.ts
+    │   │   ├── organizationController.ts
+    │   │   └── invitationController.ts
     │   ├── middlewares/
     │   │   ├── auth.ts               # authenticate
     │   │   └── requireRole.ts        # contrôle du rôle dans une organisation
     │   ├── routes/                   # Une route par domaine métier
     │   │   ├── auth.ts
-    │   │   └── organization.ts
+    │   │   ├── organization.ts
+    │   │   └── invitation.ts
     │   ├── types/express.d.ts        # Extension du type Request (userId)
     │   ├── app.ts                    # Configuration Express
     │   └── server.ts                 # Point d'entrée
@@ -246,7 +248,11 @@ Toutes les routes sont préfixées par `/api`. Format d'erreur unique : `{ "mess
 | POST | `/api/auth/refresh` | Publique | Nouveau `token` à partir d'un `refreshToken` valide |
 | POST | `/api/auth/logout` | Publique | Déconnexion (voir [décisions](#9-décisions-techniques)) |
 | POST | `/api/organizations` | `authenticate` | Crée une organisation dont l'appelant devient OWNER |
-| POST | `/api/organizations/:organizationId/invitations` | `authenticate` + OWNER | **À venir** |
+| POST | `/api/organizations/:organizationId/invitations` | `authenticate` + OWNER | Invite un email (rôle MEMBER), renvoie le lien (201, 409 si déjà membre) |
+| GET | `/api/organizations/:organizationId/invitations` | `authenticate` + OWNER | Invitations `PENDING` de l'organisation, sans token |
+| POST | `/api/organizations/:organizationId/invitations/:invitationId/cancel` | `authenticate` + OWNER | Passe l'invitation à `CANCELLED` (404 si d'une autre organisation) |
+| GET | `/api/invitations/:token` | Publique | Nom de l'organisation, email invité, `hasAccount` (410 si plus valable) |
+| POST | `/api/invitations/:token/accept` | `authenticate` | Rejoint l'organisation (403 si l'email du compte ne correspond pas) |
 
 ### Validation
 
@@ -305,6 +311,13 @@ Le type `Request` est étendu dans `src/types/express.d.ts` pour déclarer `user
 | Une seule ligne `Invitation` par email + organisation | Évite les invitations simultanées multiples ; réutilisation par `upsert` |
 | Rôle fixé à `MEMBER` côté serveur lors d'une invitation | Un seul OWNER par organisation dans le MVP ; le body ne contient que l'email |
 | Token d'invitation : `randomBytes(32)`, jamais `Math.random()` | `Math.random()` est prévisible |
+| Annulation = statut `CANCELLED`, la ligne n'est pas supprimée | La contrainte unique email + organisation impose une seule ligne ; la ré-invitation la remet à neuf |
+| Invitation acceptée, annulée ou expirée : `410 Gone` | Distingue « plus valable » de « n'existe pas » (`404`) ; l'expiration est comparée à `expiresAt` à chaque appel car le statut reste `PENDING` en base |
+| Acceptation réservée au compte dont l'email correspond à l'invitation | Un lien transféré ou intercepté ne suffit pas à entrer dans l'organisation |
+| Acceptation en transaction (membre créé + invitation `ACCEPTED`) | Atomicité : pas d'état intermédiaire incohérent |
+| Création de compte et acceptation séparées | Deux endpoints simples (`register` puis `accept`) plutôt qu'un seul qui mélange deux responsabilités |
+| Annulation : vérifier que l'invitation appartient à l'organisation de l'URL, sinon `404` | Évite une faille IDOR : `requireRole` ne vérifie que l'`organizationId`, pas l'`invitationId` |
+| La liste des invitations n'expose pas le token | Un secret ne doit pas être renvoyé sans nécessité |
 
 ---
 
@@ -404,16 +417,16 @@ Thunder Client (VS Code) ou Postman. Header des routes protégées : `Authorizat
 
 ### À faire dans le Sprint 2
 
-1. Controller et route d'invitation : validation zod de l'email, vérification que la personne n'est pas déjà membre (chercher le `User` par email, puis `OrganizationMember`), token, expiration à 7 jours, `upsert`, lien `${CLIENT_URL}/invitations/<token>`
-2. Acceptation d'invitation : gérer les deux cas (compte existant ou à créer), vérifier statut et expiration
-3. Liste des organisations de l'utilisateur
-4. Mettre à jour le cahier des charges (section 6 : modèle `Invitation`)
+1. Liste des organisations de l'utilisateur connecté (`GET /api/organizations`)
+2. Mettre à jour le cahier des charges (section 6 : modèle `Invitation`)
 
 ### Dette technique connue
 
 - **Envoi d'email simulé** : le lien d'invitation est renvoyé dans la réponse de l'API. À remplacer par un vrai envoi avant toute mise en production
 - **Validation des variables d'environnement au démarrage** (fail fast) : le serveur démarre aujourd'hui même si `JWT_SECRET` manque, et ne plante qu'à la première connexion. Prévoir un `src/config/env.ts` validé avec zod
 - **Pas de révocation de refresh token** : logout purement côté client
+- **Pas de vérification d'email à l'inscription** : seul le secret du token protège une invitation si quelqu'un s'inscrit avec l'email invité sans en être propriétaire
+- **Invitations expirées** : elles restent `PENDING` en base et apparaissent dans la liste de l'OWNER ; un nettoyage périodique est envisageable
 - **Stockage du refresh token côté client** : cookie `httpOnly` à mettre en place avec le frontend
 - **Formulaires de login/register** : pas encore d'interface, tests faits via Thunder Client
 - **Indicateur de chargement** (loading / success / error) à prévoir dès les formulaires

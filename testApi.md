@@ -27,7 +27,11 @@ Pour tous les `POST` avec un body : header `Content-Type: application/json` (ajo
 | 4 | POST | `/api/auth/refresh` | Publique |
 | 5 | POST | `/api/auth/logout` | Publique |
 | 6 | POST | `/api/organizations` | Token |
-| 7 | POST | `/api/organizations/:organizationId/invitations` | Token + OWNER (**à venir**) |
+| 7 | POST | `/api/organizations/:organizationId/invitations` | Token + OWNER |
+| 8 | GET | `/api/organizations/:organizationId/invitations` | Token + OWNER |
+| 9 | POST | `/api/organizations/:organizationId/invitations/:invitationId/cancel` | Token + OWNER |
+| 10 | GET | `/api/invitations/:token` | Publique |
+| 11 | POST | `/api/invitations/:token/accept` | Token |
 
 ---
 
@@ -247,7 +251,7 @@ Vérification : dans Prisma Studio, les tables `Organization` et `OrganizationMe
 
 ---
 
-## 7. Inviter un membre (à venir)
+## 7. Inviter un membre
 
 ```
 POST http://localhost:4000/api/organizations/<organizationId>/invitations
@@ -261,17 +265,143 @@ Body (seul l'email est envoyé : le rôle est fixé à `MEMBER` côté serveur) 
 }
 ```
 
-Réponses attendues une fois l'endpoint écrit :
+**201**
+```json
+{
+  "message": "Invitation created successfully",
+  "invitationLink": "http://localhost:5173/invitations/<token de 64 caractères>"
+}
+```
 
 | Cas | Statut |
 |---|---|
-| OWNER invite un email nouveau | `201` avec le lien `CLIENT_URL/invitations/<token>` |
-| Même invitation renvoyée une 2e fois | `201` avec un **nouveau token** ; une seule ligne en base |
-| La personne est déjà membre | `409` |
-| Email invalide | `400` |
+| OWNER invite un email nouveau | `201` avec le lien |
+| Même email invité une 2e fois | `201` avec un **nouveau token** ; toujours une seule ligne en base |
+| La personne est déjà membre | `409` `User is already a member of this organization` |
+| Email invalide ou body vide | `400` `Invalid input` |
 | Appelant `MEMBER` (pas OWNER) | `403` |
 | Appelant non membre, ou organisation inexistante | `404` |
 | Pas de token | `401` |
+
+Le lien est renvoyé dans la réponse uniquement parce que l'envoi d'email est simulé dans le MVP.
+
+---
+
+## 8. Lister les invitations en attente
+
+```
+GET http://localhost:4000/api/organizations/<organizationId>/invitations
+Authorization: Bearer <token d'un OWNER>
+```
+
+Pas de body.
+
+**200** : uniquement les invitations `PENDING`, **sans le token**
+```json
+{
+  "invitations": [
+    {
+      "id": "…",
+      "email": "collegue@gmail.com",
+      "role": "MEMBER",
+      "expiresAt": "2026-10-27T09:00:00.000Z",
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+Une invitation expirée mais jamais acceptée reste `PENDING` en base : elle apparaît donc encore dans la liste.
+
+Accès réservé à l'OWNER : `403` pour un `MEMBER`, `404` pour un non-membre.
+
+---
+
+## 9. Annuler une invitation
+
+```
+POST http://localhost:4000/api/organizations/<organizationId>/invitations/<invitationId>/cancel
+Authorization: Bearer <token d'un OWNER>
+```
+
+Pas de body. L'`invitationId` est l'`id` renvoyé par la liste (section 8), pas le token.
+
+| Cas | Statut |
+|---|---|
+| Invitation `PENDING` de cette organisation | `200` `Invitation canceled successfully` |
+| Invitation déjà acceptée, annulée... | `409` `Only pending invitations can be canceled` |
+| Invitation inexistante **ou appartenant à une autre organisation** | `404` `Invitation not found` |
+| Appelant `MEMBER` | `403` |
+
+Le statut passe à `CANCELLED` (la ligne n'est pas supprimée). Après annulation, `GET /api/invitations/<token>` renvoie `410`, et ré-inviter le même email (section 7) est possible : la ligne est remise à neuf.
+
+### Test de sécurité (IDOR)
+
+1. Créer deux organisations A et B, inviter un email dans B et noter l'`id` de l'invitation
+2. Avec l'OWNER de A, appeler `cancel` avec l'`organizationId` de **A** et l'`invitationId` de **B**
+3. Attendu : `404`, et l'invitation de B toujours `PENDING` dans Prisma Studio
+
+---
+
+## 10. Consulter une invitation (publique)
+
+```
+GET http://localhost:4000/api/invitations/<token>
+```
+
+Pas de header ni de body : la page d'invitation du frontend s'en sert avant que la personne soit connectée.
+
+**200**
+```json
+{
+  "organizationName": "Ma première organisation",
+  "email": "collegue@gmail.com",
+  "hasAccount": false
+}
+```
+
+`hasAccount` indique si un compte existe déjà pour cet email (connexion) ou non (inscription). Le token et l'id de l'invitation ne sont pas renvoyés.
+
+| Cas | Statut |
+|---|---|
+| Token valide, invitation `PENDING` et non expirée | `200` |
+| Token inconnu | `404` |
+| Invitation acceptée, annulée **ou expirée** | `410` `This invitation is no longer valid` |
+
+Pour tester l'expiration : mettre `expiresAt` dans le passé dans Prisma Studio, puis refaire l'appel.
+
+---
+
+## 11. Accepter une invitation
+
+```
+POST http://localhost:4000/api/invitations/<token>/accept
+Authorization: Bearer <token de la personne invitée>
+```
+
+Pas de body.
+
+**200** : l'utilisateur rejoint l'organisation (réponse avec l'`organizationId`)
+
+| Cas | Statut |
+|---|---|
+| Compte dont l'email correspond à l'invitation | `200` |
+| Compte dont l'email est **différent** de celui invité | `403` |
+| Même invitation acceptée une 2e fois | `410` `This invitation is no longer valid` |
+| Invitation annulée ou expirée | `410` |
+| Token inconnu | `404` |
+| Pas de token d'authentification | `401` |
+
+L'acceptation crée la ligne `OrganizationMember` (rôle `MEMBER`) et passe l'invitation à `ACCEPTED` dans **une seule transaction**. Vérifier les deux dans Prisma Studio.
+
+### Parcours complet : personne sans compte
+
+1. L'OWNER invite `marie@x.com` (section 7) et récupère le lien
+2. `GET /api/invitations/<token>` : `hasAccount: false`
+3. `register` avec un **autre** email, puis `login`, puis `accept` : `403`
+4. `register` avec `marie@x.com`, puis `login`, puis `accept` : `200`
+
+L'invitation est liée à une adresse précise : le lien seul ne suffit pas, l'email du compte doit correspondre.
 
 ---
 
@@ -296,7 +426,7 @@ Pour le troisième cas, ajouter à la main dans Prisma Studio (table `Organizati
 
 Un id d'organisation inventé donne aussi `404` : le serveur ne distingue pas « n'existe pas » de « tu n'y as pas accès ».
 
-Ces tests nécessitent une route protégée par `requireRole(['OWNER'])`, comme l'endpoint d'invitation.
+Ces tests s'appliquent à toutes les routes réservées à l'OWNER (sections 7, 8 et 9).
 
 ---
 

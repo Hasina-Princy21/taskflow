@@ -49,3 +49,32 @@ export const createOrganization = async (req: Request, res: Response) => {
         });
     }
 }
+
+export async function getOrganization(req: Request, res: Response) {
+    try {
+        const { userId } = req;
+        if (!userId || typeof userId !== "string") {
+            return res.status(401).json({ message: "User not authenticated" });
+        }
+
+        const memberships = await prisma.organizationMember.findMany({
+            where: { userId },
+            include: {
+                organization: true,
+            },
+        });
+
+        const organizations = memberships.map(membership => ({
+            id: membership.organization.id,
+            name: membership.organization.name,
+            role: membership.role,
+        }));
+
+        return res.status(200).json({ organizations });
+    } catch (error) {
+        console.error("Error fetching organization:", error);
+        return res.status(500).json({
+            message: "Internal server error",
+        });
+    }
+}

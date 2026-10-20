@@ -118,3 +118,68 @@ export async function acceptInvitation(req: Request, res: Response) {
     return res.status(500).json({ message: "Internal server error" });
   }
 }
+
+export async function listInvitations(req: Request, res: Response) {
+    try {
+        const { organizationId } = req.params;
+        if (typeof organizationId !== "string") {
+            return res.status(400).json({ message: "Invalid organization ID" });
+        }
+
+        // On liste uniquement les invitations PENDING de l'organisation, sans exposer le token
+        const invitations = await prisma.invitation.findMany({
+            where: { 
+                organizationId,
+                status: "PENDING",
+            },
+            select: {
+                id: true,
+                email: true,
+                role: true,
+                expiresAt: true,
+                createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+        });
+
+        return res.status(200).json({ invitations });
+    } catch (error) {
+        console.error("Error listing invitations:", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export async function cancelInvitation(req: Request, res: Response) { 
+    try {
+        const { organizationId, invitationId } = req.params;
+        if (typeof organizationId !== "string" || typeof invitationId !== "string") {
+            return res.status(400).json({ message: "Invalid organization or invitation ID" });
+        }
+
+        // Chercher l'invitation par son ID
+        const invitation = await prisma.invitation.findUnique({
+            where: { id: invitationId },
+        });
+
+        // Anti-IDOR : si l'invitation n'existe pas OU n'appartient pas à cette organisation, on renvoie 404
+        if (!invitation || invitation.organizationId !== organizationId) {
+            return res.status(404).json({ message: "Invitation not found" });
+        }
+
+        // Seule une invitation PENDING peut être annulée (sinon 409 Conflict)
+        if (invitation.status !== "PENDING") {
+            return res.status(409).json({ message: "Only pending invitations can be canceled" });
+        }
+
+        // Passage du statut à CANCELLED
+        await prisma.invitation.update({
+            where: { id: invitationId },
+            data: { status: "CANCELLED" },
+        });
+
+        return res.status(200).json({ message: "Invitation canceled successfully" });
+    } catch (error) {
+        console.error("Error canceling invitation:", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
