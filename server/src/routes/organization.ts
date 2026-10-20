@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import { createOrganization, getOrganization } from '../controllers/organizationController';
 import { authenticate } from '../middlewares/auth';
-import { inviteMember } from '../controllers/inviteMemberController';
 import { requireRole } from '../middlewares/requireRole';
-import { cancelInvitation, listInvitations } from '../controllers/invitationController';
+import { inviteMember, cancelInvitation, listInvitations } from '../controllers/invitationController';
 const router = Router();
 
 router.get('/', authenticate, getOrganization);
